@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
-from api.models import WashSlot
+from api.models import Booking, WashSlot
 
 
 ATTACKERS = {"attacker1": "attack-pass-1", "attacker2": "attack-pass-2"}
@@ -28,6 +28,8 @@ class Command(BaseCommand):
             user, _ = User.objects.get_or_create(username=username)
             user.set_password(password)
             user.save()
+
+        Booking.objects.all().delete()
 
         for start_time, end_time in REGULAR_SLOTS:
             WashSlot.objects.update_or_create(
