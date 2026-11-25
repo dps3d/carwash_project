@@ -63,18 +63,7 @@ class BookingValidationMixin:
         return super().to_internal_value(data)
 
     def validate(self, attrs):
-        attrs = super().validate(attrs)
-        slot = attrs.get("slot") or getattr(self.instance, "slot", None)
-        quantity = (
-            attrs.get("quantity")
-            if "quantity" in attrs
-            else getattr(self.instance, "quantity", None)
-        )
-        if slot is not None and quantity is not None and quantity > slot.available:
-            raise serializers.ValidationError(
-                {"quantity": "Кількість перевищує доступний залишок."}
-            )
-        return attrs
+        return super().validate(attrs)
 
 
 if WashSlot is not None:
