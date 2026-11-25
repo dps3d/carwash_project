@@ -42,21 +42,22 @@ class BookingValidationMixin:
 
     def to_internal_value(self, data):
         if isinstance(data, Mapping):
-            if "quantity" in data and isinstance(data["quantity"], bool):
+            if "quantity" in data and isinstance(data["quantity"], (bool, float)):
                 raise serializers.ValidationError(
-                    {"quantity": "Кількість має бути цілим числом, а не boolean."}
+                    {"quantity": "Кількість має бути цілим числом."}
                 )
 
             if "slot" in data:
                 raw_slot = data["slot"]
-                if isinstance(raw_slot, bool):
+                if isinstance(raw_slot, (bool, float)):
                     raise serializers.ValidationError(
-                        {"slot": "ID слота має бути цілим числом, а не boolean."}
+                        {"slot": "ID слота має бути цілим числом."}
                     )
                 if isinstance(raw_slot, int) and abs(raw_slot) > SQLITE_MAX_INT:
                     raise serializers.ValidationError({"slot": "Некоректний ID слота."})
-                if isinstance(raw_slot, str) and raw_slot.lstrip("+-").isdigit():
-                    if abs(int(raw_slot)) > SQLITE_MAX_INT:
+                if isinstance(raw_slot, str):
+                    stripped = raw_slot.strip()
+                    if stripped.lstrip("+-").isdigit() and abs(int(stripped)) > SQLITE_MAX_INT:
                         raise serializers.ValidationError({"slot": "Некоректний ID слота."})
 
         return super().to_internal_value(data)
@@ -64,7 +65,11 @@ class BookingValidationMixin:
     def validate(self, attrs):
         attrs = super().validate(attrs)
         slot = attrs.get("slot") or getattr(self.instance, "slot", None)
-        quantity = attrs.get("quantity")
+        quantity = (
+            attrs.get("quantity")
+            if "quantity" in attrs
+            else getattr(self.instance, "quantity", None)
+        )
         if slot is not None and quantity is not None and quantity > slot.available:
             raise serializers.ValidationError(
                 {"quantity": "Кількість перевищує доступний залишок."}
