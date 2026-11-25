@@ -83,9 +83,40 @@ python tools/race.py --help
 
 ## Наш домен
 
-*Заповнити:* домен, обмежений ресурс, адреси каталогу й заявок, поля.
+Домен — автомийка. Обмежений ресурс — кількість місць у конкретному вікні запису
+на дату та проміжок часу. Каталог вікон доступний за `/api/v1/slots/`; заявки —
+за `/api/v1/bookings/`. Вікно має поля `date`, `start_time`, `end_time` і числовий
+залишок `available`. Заявка посилається на вікно через `slot`, містить `quantity`
+та має стан `draft`, `confirmed` або `cancelled`. Створення чернетки не змінює
+залишок: він зменшується під час підтвердження й відновлюється під час скасування.
 
 ## Сценарій у curl
 
-*Заповнити:* вхід → каталог → заявка → `confirm` → залишок зменшився → повторний
-`confirm` `409` → `cancel` → залишок повернувся.
+Отримайте токен, перегляньте каталог і створіть заявку на одне вікно:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/v1/auth/token/ \
+     -H "Content-Type: application/json" \
+     -d '{"username":"attacker1","password":"attack-pass-1"}'
+# Візьміть access із відповіді та підставте його замість <access>.
+
+curl -s http://127.0.0.1:8000/api/v1/slots/
+
+curl -s -X POST http://127.0.0.1:8000/api/v1/bookings/ \
+     -H "Authorization: Bearer <access>" \
+     -H "Content-Type: application/json" \
+     -d '{"slot":1,"quantity":1}'
+# Візьміть id створеної заявки та підставте замість <booking_id>.
+```
+
+Підтвердження зменшує `available`; повторне підтвердження тієї самої заявки має
+повернути `409`. Скасування підтвердженої заявки повертає місце у вікно:
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/api/v1/bookings/<booking_id>/confirm/ \
+     -H "Authorization: Bearer <access>"
+curl -s -X POST http://127.0.0.1:8000/api/v1/bookings/<booking_id>/confirm/ \
+     -H "Authorization: Bearer <access>"  # очікується 409
+curl -s -X POST http://127.0.0.1:8000/api/v1/bookings/<booking_id>/cancel/ \
+     -H "Authorization: Bearer <access>"
+```
