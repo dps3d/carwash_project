@@ -1,12 +1,36 @@
-"""Роль «Стійкість». Уся бухгалтерія ресурсу — тут, а не у views.
+from django.db import transaction
+from django.db.models import F
+from rest_framework.exceptions import ValidationError
+from .models import Booking, WashSlot
 
-    def confirm_order(order_id: int, user) -> Order: ...
-    def cancel_order(order_id: int, user) -> Order: ...
+class Conflict(Exception):
+    """Перехід не за схемою станів → view віддає 409"""
 
-Головне правило дня: ресурс зайнятий тоді й лише тоді, коли заявка в стані
-`confirmed`. Кожна функція — одна `transaction.atomic()` і умовні UPDATE
-(див. регламент, етап 2). Помилки віддавайте винятками, а views перетворять
-їх на 400 / 409.
-"""
-from django.db import transaction  # noqa: F401
-from django.db.models import F  # noqa: F401
+def confirm(booking):
+    with transaction.atomic():
+        # 1) стан: draft → confirmed, атомарно в базі
+        moved = Booking.objects.filter(pk=booking.pk, status="draft") \
+                               .update(status="confirmed")
+        if not moved:
+            raise Conflict("Заявка не в стані draft")
+        # 2) ресурс: списати, лише якщо вистачає
+        taken = WashSlot.objects.filter(pk=booking.slot_id,
+                                        available__gte=booking.quantity) \
+                                .update(available=F("available") - booking.quantity)
+        if not taken:
+            # виняток ВСЕРЕДИНІ atomic: перший UPDATE відкотиться
+            raise ValidationError("Недостатньо вільних вікон")  # 400, рядок 17
+
+def cancel(booking):
+    with transaction.atomic():
+        # спершу confirmed → cancelled: тоді ресурс повертаємо
+        if Booking.objects.filter(pk=booking.pk, status="confirmed") \
+                          .update(status="cancelled"):
+            WashSlot.objects.filter(pk=booking.slot_id) \
+                            .update(available=F("available") + booking.quantity)
+            return
+        # інакше draft → cancelled: ресурс не займали, нічого не повертаємо
+        if Booking.objects.filter(pk=booking.pk, status="draft") \
+                          .update(status="cancelled"):
+            return
+        raise Conflict("Заявка вже скасована")  # cancelled → cancelled = 409
