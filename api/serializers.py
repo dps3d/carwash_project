@@ -57,8 +57,13 @@ class BookingValidationMixin:
                     raise serializers.ValidationError({"slot": "Некоректний ID слота."})
                 if isinstance(raw_slot, str):
                     stripped = raw_slot.strip()
-                    if stripped.lstrip("+-").isdigit() and abs(int(stripped)) > SQLITE_MAX_INT:
+                    if len(stripped) > 20 or not stripped.isascii():
                         raise serializers.ValidationError({"slot": "Некоректний ID слота."})
+                    try:
+                        if abs(int(stripped)) > SQLITE_MAX_INT:
+                            raise serializers.ValidationError({"slot": "Некоректний ID слота."})
+                    except ValueError:
+                        raise serializers.ValidationError({"slot": "ID слота має бути цілим числом."})
 
         return super().to_internal_value(data)
 

@@ -67,9 +67,9 @@ def custom_exception_handler(exc, context):
         detail = exc.message_dict if hasattr(exc, "message_dict") else exc.messages
         return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
 
-    if isinstance(exc, OverflowError):
+    if isinstance(exc, (OverflowError, RecursionError)):
         return Response(
-            {"detail": "Числове значення виходить за допустимі межі."},
+            {"detail": "Некоректні або занадто складні вхідні дані."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
