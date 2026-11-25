@@ -12,7 +12,7 @@
 """
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import Http404
 from rest_framework import permissions, serializers, status
 from rest_framework.exceptions import APIException
@@ -139,6 +139,15 @@ class OwnerSafeViewSetMixin:
     permission_classes = [IsOwner]
     owner_field = "owner"
 
+    def dispatch(self, request, *args, **kwargs):
+        if request.method not in permissions.SAFE_METHODS and kwargs:
+            with transaction.atomic():
+                response = super().dispatch(request, *args, **kwargs)
+                if response.status_code >= 400:
+                    transaction.set_rollback(True)
+                return response
+        return super().dispatch(request, *args, **kwargs)
+
     def get_queryset(self):
         qs = super().get_queryset()
         user = getattr(self.request, "user", None)
@@ -159,6 +168,28 @@ class OwnerSafeViewSetMixin:
 
     def perform_create(self, serializer):
         serializer.save(**{self.owner_field: self.request.user, "status": "draft"})
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        with transaction.atomic():
+            is_still_draft = (
+                type(instance).objects.filter(pk=instance.pk, status="draft").exists()
+            )
+            if not is_still_draft:
+                raise ConflictError(
+                    "Змінювати або видаляти можна лише заявку в стані 'draft'."
+                )
+            serializer.save(**{self.owner_field: self.request.user, "status": "draft"})
+
+    def perform_destroy(self, instance):
+        with transaction.atomic():
+            deleted, _ = (
+                type(instance).objects.filter(pk=instance.pk, status="draft").delete()
+            )
+            if not deleted:
+                raise ConflictError(
+                    "Змінювати або видаляти можна лише заявку в стані 'draft'."
+                )
 
 
 # Зручні аліаси для сумісності
