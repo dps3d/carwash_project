@@ -1,10 +1,10 @@
 from django.db import transaction
 from django.db.models import F
 from rest_framework.exceptions import ValidationError
-
 from .models import Booking, WashSlot
-from .permissions import ConflictError as Conflict  # DRF сам віддає 409
 
+class Conflict(Exception):
+    """Перехід не за схемою станів → view віддає 409"""
 
 def confirm(booking):
     with transaction.atomic():
@@ -21,16 +21,15 @@ def confirm(booking):
             # виняток ВСЕРЕДИНІ atomic: перший UPDATE відкотиться
             raise ValidationError("Недостатньо вільних вікон")  # 400, рядок 17
 
-
 def cancel(booking):
     with transaction.atomic():
-        # confirmed → cancelled: ресурс повертаємо
+        # спершу confirmed → cancelled: тоді ресурс повертаємо
         if Booking.objects.filter(pk=booking.pk, status="confirmed") \
                           .update(status="cancelled"):
             WashSlot.objects.filter(pk=booking.slot_id) \
                             .update(available=F("available") + booking.quantity)
             return
-        # draft → cancelled: ресурс не займали, нічого не повертаємо
+        # інакше draft → cancelled: ресурс не займали, нічого не повертаємо
         if Booking.objects.filter(pk=booking.pk, status="draft") \
                           .update(status="cancelled"):
             return
