@@ -120,3 +120,22 @@ curl -s -X POST http://127.0.0.1:8000/api/v1/bookings/<booking_id>/confirm/ \
 curl -s -X POST http://127.0.0.1:8000/api/v1/bookings/<booking_id>/cancel/ \
      -H "Authorization: Bearer <access>"
 ```
+## API Endpoints
+
+API доступне за префіксом `/api/v1/`.
+
+### Wash Slots
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/slots/` | Перегляд доступних вікон запису |
+| GET | `/api/v1/slots/{id}/` | Перегляд конкретного вікна |
+### Bookings
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/bookings/` | Перегляд власних заявок |
+| POST | `/api/v1/bookings/` | Створення заявки |
+| GET | `/api/v1/bookings/{id}/` | Перегляд заявки |
+| POST | `/api/v1/bookings/{id}/confirm/` | Підтвердження заявки |
+| POST | `/api/v1/bookings/{id}/cancel/` | Скасування заявки |
