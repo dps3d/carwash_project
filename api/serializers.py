@@ -1,6 +1,96 @@
-"""Роль «API». Серіалізатори каталогу і заявки.
+"""Роль «API» (+ базова валідація доступу та обмежень від ролі «Доступ»).
 
-Пам'ятка: що клієнт НЕ має права задати в тілі — `owner`, `status` —
-робіть read-only, а не «сподіваємось, що ніхто не надішле».
+================================================================================
+ПОСЛАННЯ ДЛЯ РОЗРОБНИКА РОЛІ «API» ВІД РОЛІ «ДОСТУП» — БУДЬ ЛАСКА, ПРОЧИТАЙ:
+================================================================================
+Цей файл уже містить захисну базу під моделі WashSlot і Booking (із гілки
+`models-wash-slot`), щоб закрити рядки 11–17, 20 та захист від падінь SQLite (500):
+
+1. НЕ ВИДАЛЯЙ `read_only_fields = ("id", "owner", "status")` у `BookingSerializer` —
+   це захищає від підміни `owner` і `status` у тілі запиту (рядки 11 і 12).
+2. НЕ ВИДАЛЯЙ `BookingValidationMixin`, `quantity` обмеження (`MIN_QUANTITY..MAX_QUANTITY`),
+   `to_internal_value()` та `validate()` — вони відбивають `-5`, `0`,
+   `99999999999999999999`, булеві значення, гігантський `slot` ID та перевищення
+   залишку кодом `400` замість `500` (рядки 13–17), і при цьому дозволяють створити
+   кілька `draft`-заявок по 1 шт. для Гонки Б (рядок 22).
+3. Можеш вільно додавати додаткові поля для відображення (наприклад, nested info
+   чи `read_only` поля), якщо не послаблюєш ці перевірки.
+================================================================================
 """
-from rest_framework import serializers  # noqa: F401
+
+from collections.abc import Mapping
+
+from rest_framework import serializers
+
+from . import models as api_models
+from .permissions import (
+    MAX_QUANTITY,
+    MIN_QUANTITY,
+    SQLITE_MAX_INT,
+    validate_booking_quantity,
+)
+
+WashSlot = getattr(api_models, "WashSlot", None)
+Booking = getattr(api_models, "Booking", None)
+
+
+class BookingValidationMixin:
+    """Міксин валідації вхідних даних заявки (рядки 13–17, захист від SQLite overflow)."""
+
+    def validate_quantity(self, value):
+        return validate_booking_quantity(value)
+
+    def to_internal_value(self, data):
+        if isinstance(data, Mapping):
+            if "quantity" in data and isinstance(data["quantity"], bool):
+                raise serializers.ValidationError(
+                    {"quantity": "Кількість має бути цілим числом, а не boolean."}
+                )
+
+            if "slot" in data:
+                raw_slot = data["slot"]
+                if isinstance(raw_slot, bool):
+                    raise serializers.ValidationError(
+                        {"slot": "ID слота має бути цілим числом, а не boolean."}
+                    )
+                if isinstance(raw_slot, int) and abs(raw_slot) > SQLITE_MAX_INT:
+                    raise serializers.ValidationError({"slot": "Некоректний ID слота."})
+                if isinstance(raw_slot, str) and raw_slot.lstrip("+-").isdigit():
+                    if abs(int(raw_slot)) > SQLITE_MAX_INT:
+                        raise serializers.ValidationError({"slot": "Некоректний ID слота."})
+
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        slot = attrs.get("slot") or getattr(self.instance, "slot", None)
+        quantity = attrs.get("quantity")
+        if slot is not None and quantity is not None and quantity > slot.available:
+            raise serializers.ValidationError(
+                {"quantity": "Кількість перевищує доступний залишок."}
+            )
+        return attrs
+
+
+if WashSlot is not None:
+
+    class WashSlotSerializer(serializers.ModelSerializer):
+        class Meta:
+            model = WashSlot
+            fields = ("id", "date", "start_time", "end_time", "available")
+            read_only_fields = ("id",)
+
+
+if Booking is not None:
+
+    class BookingSerializer(BookingValidationMixin, serializers.ModelSerializer):
+        quantity = serializers.IntegerField(
+            min_value=MIN_QUANTITY,
+            max_value=MAX_QUANTITY,
+            validators=[validate_booking_quantity],
+        )
+
+        class Meta:
+            model = Booking
+            fields = ("id", "owner", "slot", "quantity", "status")
+            read_only_fields = ("id", "owner", "status")
